@@ -96,4 +96,31 @@ class ContentController @Inject()(@Named(ActorNames.CONTENT_ACTOR) contentActor:
         setRequestContext(readRequest, version, objectType, null)
         getResult(ApiId.GET_HIERARCHY, collectionActor, readRequest)
     }
+
+
+    //DEV CON ROUTES
+
+    def generateCareerPath(identifier: String) = Action.async { implicit request =>
+        val headers = commonHeaders()
+        val content = requestFormData()
+        content.putAll(headers)
+        val contentRequest = getRequest(content, headers, "careerUpload")
+        setRequestContext(contentRequest, version, objectType, schemaName)
+        contentRequest.getContext.put("identifier", identifier)
+        getResult(ApiId.CAREER_GRAPH_UPLOAD, contentActor, contentRequest)
+    }
+
+    def getCareerPaths(identifier: String, start: Option[String], end: Option[String]) = Action.async { implicit request =>
+        val headers = commonHeaders()
+        val content = new java.util.HashMap().asInstanceOf[java.util.Map[String, Object]]
+        content.putAll(headers)
+        content.putAll(Map("identifier" -> identifier,
+            "startNodeName" -> start.getOrElse("").replace("\"", "" ),
+            "endNodeName" -> end.getOrElse("").replace("\"", "" )))
+        val contentRequest = getRequest(content, headers, "careerGet")
+        setRequestContext(contentRequest, version, objectType, schemaName)
+        contentRequest.getContext.put("identifier", identifier)
+        getResult(ApiId.CAREER_GRAPH_GET, contentActor, contentRequest)
+    }
+
 }

@@ -6,6 +6,7 @@ import org.apache.commons.lang3.StringUtils;
 import org.neo4j.driver.v1.Driver;
 import org.neo4j.driver.v1.Record;
 import org.neo4j.driver.v1.Session;
+import org.neo4j.driver.v1.StatementResultCursor;
 import org.sunbird.common.DateUtils;
 import org.sunbird.common.JsonUtils;
 import org.sunbird.common.dto.Request;
@@ -16,6 +17,7 @@ import org.sunbird.graph.common.Identifier;
 import org.sunbird.graph.common.enums.AuditProperties;
 import org.sunbird.graph.common.enums.GraphDACParams;
 import org.sunbird.graph.common.enums.SystemProperties;
+import org.sunbird.graph.dac.enums.RelationTypes;
 import org.sunbird.graph.dac.enums.SystemNodeTypes;
 import org.sunbird.graph.dac.model.Node;
 import org.sunbird.graph.dac.util.Neo4jNodeUtil;
@@ -26,13 +28,17 @@ import org.sunbird.graph.service.common.GraphOperation;
 import org.sunbird.graph.service.util.DriverUtil;
 import org.sunbird.graph.service.util.NodeQueryGenerationUtil;
 import org.sunbird.telemetry.logger.TelemetryManager;
+import scala.Int;
 import scala.compat.java8.FutureConverters;
 import scala.concurrent.Future;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CompletionStage;
+import java.util.stream.Collectors;
 
 public class NodeAsyncOperations {
 
@@ -233,6 +239,136 @@ public class NodeAsyncOperations {
                 throw new ServerException(DACErrorCodeConstants.CONNECTION_PROBLEM.name(),
                         DACErrorMessageConstants.CONNECTION_PROBLEM + " | " + e.getMessage(), e);
         }
+    }
+
+    public static Future<List<Record>> bulkAddNodes(String graphId, Set<Map<String, String>> nodesData) {
+        if (StringUtils.isBlank(graphId))
+            throw new ClientException(DACErrorCodeConstants.INVALID_GRAPH.name(),
+                    DACErrorMessageConstants.INVALID_GRAPH_ID + " | [Create Node Operation Failed.]");
+        Driver driver = DriverUtil.getDriver(graphId, GraphOperation.WRITE);
+        TelemetryManager.log("Driver Initialised. | [Graph Id: " + graphId + "]");
+        String nodesDataString = nodesData.toString().replaceAll("=([A-Za-z0-9\\s_-]+)", "\\:\"$1\\\"");
+        try (Session session = driver.session()) {
+            String statementTemplate = "UNWIND " + nodesDataString + " as row CREATE (n:education) SET n += row return n";
+            CompletionStage<List<Record>> cs = session.runAsync(statementTemplate)
+                    .thenCompose(fn -> fn.listAsync())
+                    .whenComplete((records, error) -> {
+                        if (records == null)   error.printStackTrace();
+                        session.closeAsync();
+                    });
+            return FutureConverters.toScala(cs);
+        } catch (Throwable e) {
+            e.printStackTrace();
+            if (!(e instanceof MiddlewareException)) {
+                throw new ServerException(DACErrorCodeConstants.CONNECTION_PROBLEM.name(),
+                        DACErrorMessageConstants.CONNECTION_PROBLEM + " | " + e.getMessage(), e);
+            } else {
+                throw e;
+            }
+        }
+    }
+
+    public static Future<List<Record>> bulkCreateRelations(String graphId, Map<String, Int> relationData) {
+        if (StringUtils.isBlank(graphId))
+            throw new ClientException(DACErrorCodeConstants.INVALID_GRAPH.name(),
+                    DACErrorMessageConstants.INVALID_GRAPH_ID + " | [Create Node Operation Failed.]");
+        Driver driver = DriverUtil.getDriver(graphId, GraphOperation.WRITE);
+        TelemetryManager.log("Driver Initialised. | [Graph Id: " + graphId + "]");
+        List<Map<String, Object>> relData = getRelationData(relationData);
+        Map<String, Object> dataMap = new HashMap<String, Object>() {{
+            put("data", relData);
+        }};
+        try (Session session = driver.session()) {
+            StringBuilder statementTemplate = new StringBuilder();
+            statementTemplate.append("UNWIND {data} ");
+            statementTemplate.append("AS ROW WITH ROW.startNodeId AS startNode, ROW.endNodeId AS endNode, ROW.relMetadata as relMetadata ");
+            statementTemplate.append("MATCH(n:education {careerLevel:startNode}) ");
+            statementTemplate.append("MATCH(m:education {careerLevel:endNode}) \n");
+            statementTemplate.append("CREATE (n)-[r:associatedTo]->(m) set r += relMetadata ");
+            statementTemplate.append("RETURN COUNT(*) AS RESULT;");
+            CompletionStage<List<Record>> cs = session.runAsync(statementTemplate.toString(), dataMap)
+                    .thenCompose(fn -> fn.listAsync())
+                    .whenComplete((records, error) -> {
+                        if (records == null) error.printStackTrace();
+                        session.closeAsync();
+                    });
+            return FutureConverters.toScala(cs);
+        } catch (Throwable e) {
+            e.printStackTrace();
+            if (!(e instanceof MiddlewareException)) {
+                throw new ServerException(DACErrorCodeConstants.CONNECTION_PROBLEM.name(),
+                        DACErrorMessageConstants.CONNECTION_PROBLEM + " | " + e.getMessage(), e);
+            } else {
+                throw e;
+            }
+        }
+    }
+
+    public static Future<List<Record>> getShortestPath(String graphId, String startNode, String endNode, List<Map<String, List<Map<String, String>>>> paths) {
+        if (StringUtils.isBlank(graphId))
+            throw new ClientException(DACErrorCodeConstants.INVALID_GRAPH.name(),
+                    DACErrorMessageConstants.INVALID_GRAPH_ID + " | [Create Node Operation Failed.]");
+        Driver driver = DriverUtil.getDriver(graphId, GraphOperation.WRITE);
+        TelemetryManager.log("Driver Initialised. | [Graph Id: " + graphId + "]");
+        try (Session session = driver.session()) {
+            String statementTemplate = getTemplateStatement(startNode, endNode);
+            CompletionStage<List<Record>> cs = session.runAsync(statementTemplate)
+                    .thenCompose(fn -> fn.listAsync())
+                    .whenComplete((records, error) -> {
+                        if (records == null) error.printStackTrace();
+                        else
+                            records.forEach(record -> {
+                                org.neo4j.driver.v1.types.Path path = record.get("path").asPath();
+                                List<Map<String, String>> nodes = new ArrayList<>();
+                                List<Map<String, String>> relations = new ArrayList<>();
+                                path.nodes().forEach(node -> {
+                                    nodes.add(new HashMap<String, String>() {{
+                                        put("id", node.id() + "");
+                                        put("name", node.get("careerLevel").asString());
+                                    }});
+                                });
+                                path.relationships().forEach(relation -> {
+                                    relations.add(new HashMap<String, String>() {{
+                                        put("startId", relation.startNodeId() + "");
+                                        put("endId", relation.endNodeId() + "");
+                                        put("noOfPeople", relation.get("people") + "");
+                                    }});
+                                });
+                                paths.add(new HashMap<String, List<Map<String, String>>>() {{
+                                    put("nodes", nodes);
+                                    put("relations", relations);
+                                }});
+                            });
+                        session.closeAsync();
+                    });
+            return FutureConverters.toScala(cs);
+        } catch (Throwable e) {
+            e.printStackTrace();
+            if (!(e instanceof MiddlewareException)) {
+                throw new ServerException(DACErrorCodeConstants.CONNECTION_PROBLEM.name(),
+                        DACErrorMessageConstants.CONNECTION_PROBLEM + " | " + e.getMessage(), e);
+            } else {
+                throw e;
+            }
+        }
+    }
+
+    private static List<Map<String, Object>> getRelationData(Map<String, Int> relData) {
+       return relData.keySet().stream().map(key -> new HashMap<String, Object>() {{
+            put("startNodeId", key.split("->")[0]);
+            put("endNodeId", key.split("->")[1]);
+            put("relMetadata", new HashMap<String, Object>() {{ put("people", relData.get(key));}});
+        }}).collect(Collectors.toList());
+    }
+
+    private static String getTemplateStatement(String startNodeName, String endNodeName) {
+        if (StringUtils.isNotBlank(startNodeName) && StringUtils.isNotBlank(endNodeName))
+            return "MATCH (n:education {careerLevel:\"" + startNodeName + "\"}), (m:education {careerLevel:\"" + endNodeName + "\"}) MATCH path = allShortestPaths( (n)-[*]-(m) ) RETURN path";
+        else if(StringUtils.isNotBlank(startNodeName) && StringUtils.isBlank(endNodeName) )
+            return "MATCH path = (n:education {careerLevel: \""+ startNodeName +"\"})-[r *]->(m:education) return path;";
+        else if(StringUtils.isNotBlank(endNodeName) && StringUtils.isBlank(startNodeName))
+            return "MATCH path = (n:education)-[r *]->(m:education {careerLevel: \""+ endNodeName +"\"}) return path;";
+        else return "MATCH path = (n:education)-[r *]->(m:education) return paths;";
     }
 
     private static Node setPrimitiveData(Node node) {

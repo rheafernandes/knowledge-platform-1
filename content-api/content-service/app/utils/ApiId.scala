@@ -21,4 +21,10 @@ object ApiId {
 	val UPDATE_LICENSE = "api.license.update"
 	val RETIRE_LICENSE = "api.license.retire"
 
+
+	//DEV CON API'S
+	val CAREER_GRAPH_UPLOAD = "api.career.upload"
+	val CAREER_GRAPH_GET = "api.career.get"
+
+
 }

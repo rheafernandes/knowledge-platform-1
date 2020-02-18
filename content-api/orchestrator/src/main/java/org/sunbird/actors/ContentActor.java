@@ -12,6 +12,8 @@ import org.sunbird.common.exception.ClientException;
 import org.sunbird.graph.dac.model.Node;
 import org.sunbird.graph.nodes.DataNode;
 import org.sunbird.graph.utils.NodeUtil;
+import org.sunbird.managers.CareerPathManager;
+import org.sunbird.managers.HierarchyManager;
 import org.sunbird.utils.RequestUtils;
 import scala.concurrent.Future;
 
@@ -31,6 +33,8 @@ public class ContentActor extends BaseActor {
             case "createContent": return create(request);
             case "readContent": return read(request);
             case "updateContent": return update(request);
+            case "careerUpload": return careerUpload(request);
+            case "careerGet": return careerGet(request);
             default: return ERROR(operation);
         }
     }
@@ -90,6 +94,13 @@ public class ContentActor extends BaseActor {
                 }, getContext().dispatcher());
     }
 
+    private Future<Response> careerUpload(Request request) throws Exception {
+        return CareerPathManager.createCareerPath(request, getContext().dispatcher());
+    }
+
+    private Future<Response> careerGet(Request request) throws Exception {
+        return CareerPathManager.getCareerPath(request, getContext().dispatcher());
+    }
     private static void populateDefaultersForCreation(Request request) {
         setDefaultsBasedOnMimeType(request, ContentParams.create.name());
         setDefaultLicense(request);

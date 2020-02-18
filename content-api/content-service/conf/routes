@@ -19,3 +19,11 @@ GET     /license/v3/read/:identifier            controllers.v3.LicenseController
 PATCH   /license/v3/update/:identifier          controllers.v3.LicenseController.update(identifier: String)
 DELETE  /license/v3/retire/:identifier          controllers.v3.LicenseController.retire(identifier: String)
 
+
+
+#DEV CON ROUTES
+POST      /career/v3/upload/:identifier         controllers.v3.ContentController.generateCareerPath(identifier:String)
+GET       /career/v3/get/:identifier            controllers.v3.ContentController.getCareerPaths(identifier:String, start:Option[String], end:Option[String])
+
+
+
