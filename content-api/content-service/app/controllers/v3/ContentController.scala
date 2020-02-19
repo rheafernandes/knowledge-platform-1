@@ -110,13 +110,15 @@ class ContentController @Inject()(@Named(ActorNames.CONTENT_ACTOR) contentActor:
         getResult(ApiId.CAREER_GRAPH_UPLOAD, contentActor, contentRequest)
     }
 
-    def getCareerPaths(identifier: String, start: Option[String], end: Option[String]) = Action.async { implicit request =>
+    def getCareerPaths(identifier: String, start: Option[String], end: Option[String], contains: Option[String]) = Action.async { implicit request =>
         val headers = commonHeaders()
         val content = new java.util.HashMap().asInstanceOf[java.util.Map[String, Object]]
         content.putAll(headers)
         content.putAll(Map("identifier" -> identifier,
-            "startNodeName" -> start.getOrElse("").replace("\"", "" ),
-            "endNodeName" -> end.getOrElse("").replace("\"", "" )))
+            "startNodeName" -> start.getOrElse("").replace("\"", ""),
+            "endNodeName" -> end.getOrElse("").replace("\"", ""),
+            "containsNodeName" -> contains.getOrElse("").replace("\"", "")
+        ))
         val contentRequest = getRequest(content, headers, "careerGet")
         setRequestContext(contentRequest, version, objectType, schemaName)
         contentRequest.getContext.put("identifier", identifier)

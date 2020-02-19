@@ -68,23 +68,23 @@ public class NodeAsyncOperations {
             String statementTemplate = StringUtils.removeEnd((String) entry.get(GraphDACParams.query.name()), CypherQueryConfigurationConstants.COMMA);
             Map<String, Object> statementParameters = (Map<String, Object>) entry.get(GraphDACParams.paramValueMap.name());
             CompletionStage<Node> cs = session.runAsync(statementTemplate, statementParameters)
-            .thenCompose(fn -> fn.singleAsync())
-            .thenApply(record -> {
-                org.neo4j.driver.v1.types.Node neo4JNode = record.get(DEFAULT_CYPHER_NODE_OBJECT).asNode();
-                String versionKey = (String) neo4JNode.get(GraphDACParams.versionKey.name()).asString();
-                String identifier = (String) neo4JNode.get(SystemProperties.IL_UNIQUE_ID.name()).asString();
-                node.setGraphId(graphId);
-                node.setIdentifier(identifier);
-                if (StringUtils.isNotBlank(versionKey))
-                    node.getMetadata().put(GraphDACParams.versionKey.name(), versionKey);
-                return node;
-            }).exceptionally(error -> {
+                    .thenCompose(fn -> fn.singleAsync())
+                    .thenApply(record -> {
+                        org.neo4j.driver.v1.types.Node neo4JNode = record.get(DEFAULT_CYPHER_NODE_OBJECT).asNode();
+                        String versionKey = (String) neo4JNode.get(GraphDACParams.versionKey.name()).asString();
+                        String identifier = (String) neo4JNode.get(SystemProperties.IL_UNIQUE_ID.name()).asString();
+                        node.setGraphId(graphId);
+                        node.setIdentifier(identifier);
+                        if (StringUtils.isNotBlank(versionKey))
+                            node.getMetadata().put(GraphDACParams.versionKey.name(), versionKey);
+                        return node;
+                    }).exceptionally(error -> {
                         if (error.getCause() instanceof org.neo4j.driver.v1.exceptions.ClientException)
                             throw new ClientException(DACErrorCodeConstants.CONSTRAINT_VALIDATION_FAILED.name(), DACErrorMessageConstants.CONSTRAINT_VALIDATION_FAILED + node.getIdentifier());
                         else
                             throw new ServerException(DACErrorCodeConstants.SERVER_ERROR.name(),
                                     "Error! Something went wrong while creating node object. ", error.getCause());
-            });
+                    });
             return FutureConverters.toScala(cs);
         } catch (Throwable e) {
             e.printStackTrace();
@@ -119,7 +119,7 @@ public class NodeAsyncOperations {
         Map<String, Object> entry = (Map<String, Object>) queryMap.entrySet().stream().findFirst().get().getValue();
 
 
-        try(Session session = driver.session()) {
+        try (Session session = driver.session()) {
             String statement = StringUtils.removeEnd((String) entry.get(GraphDACParams.query.name()), CypherQueryConfigurationConstants.COMMA);
             Map<String, Object> statementParams = (Map<String, Object>) entry.get(GraphDACParams.paramValueMap.name());
             CompletionStage<Node> cs = session.runAsync(statement, statementParams).thenCompose(fn -> fn.singleAsync())
@@ -236,8 +236,8 @@ public class NodeAsyncOperations {
                     });
             return FutureConverters.toScala(cs);
         } catch (Exception e) {
-                throw new ServerException(DACErrorCodeConstants.CONNECTION_PROBLEM.name(),
-                        DACErrorMessageConstants.CONNECTION_PROBLEM + " | " + e.getMessage(), e);
+            throw new ServerException(DACErrorCodeConstants.CONNECTION_PROBLEM.name(),
+                    DACErrorMessageConstants.CONNECTION_PROBLEM + " | " + e.getMessage(), e);
         }
     }
 
@@ -247,13 +247,13 @@ public class NodeAsyncOperations {
                     DACErrorMessageConstants.INVALID_GRAPH_ID + " | [Create Node Operation Failed.]");
         Driver driver = DriverUtil.getDriver(graphId, GraphOperation.WRITE);
         TelemetryManager.log("Driver Initialised. | [Graph Id: " + graphId + "]");
-        String nodesDataString = nodesData.toString().replaceAll("=([A-Za-z0-9\\s_-]+)", "\\:\"$1\\\"");
+        String nodesDataString = nodesData.toString().replaceAll("=([A-Za-z0-9\\s_().-]+)", "\\:\"$1\\\"");
         try (Session session = driver.session()) {
             String statementTemplate = "UNWIND " + nodesDataString + " as row CREATE (n:education) SET n += row return n";
             CompletionStage<List<Record>> cs = session.runAsync(statementTemplate)
                     .thenCompose(fn -> fn.listAsync())
                     .whenComplete((records, error) -> {
-                        if (records == null)   error.printStackTrace();
+                        if (records == null) error.printStackTrace();
                         session.closeAsync();
                     });
             return FutureConverters.toScala(cs);
@@ -304,14 +304,16 @@ public class NodeAsyncOperations {
         }
     }
 
-    public static Future<List<Record>> getShortestPath(String graphId, String startNode, String endNode, List<Map<String, List<Map<String, String>>>> paths) {
+    public static Future<List<Record>> getShortestPath(String graphId, String startNode, String endNode, String containsNode, Map<String, List<Map<String, String>>> paths) {
         if (StringUtils.isBlank(graphId))
             throw new ClientException(DACErrorCodeConstants.INVALID_GRAPH.name(),
                     DACErrorMessageConstants.INVALID_GRAPH_ID + " | [Create Node Operation Failed.]");
         Driver driver = DriverUtil.getDriver(graphId, GraphOperation.WRITE);
         TelemetryManager.log("Driver Initialised. | [Graph Id: " + graphId + "]");
         try (Session session = driver.session()) {
-            String statementTemplate = getTemplateStatement(startNode, endNode);
+            List<Map<String, String>> nodes = new ArrayList<>();
+            List<Map<String, String>> relations = new ArrayList<>();
+            String statementTemplate = getTemplateStatement(startNode, endNode, containsNode);
             CompletionStage<List<Record>> cs = session.runAsync(statementTemplate)
                     .thenCompose(fn -> fn.listAsync())
                     .whenComplete((records, error) -> {
@@ -319,26 +321,26 @@ public class NodeAsyncOperations {
                         else
                             records.forEach(record -> {
                                 org.neo4j.driver.v1.types.Path path = record.get("path").asPath();
-                                List<Map<String, String>> nodes = new ArrayList<>();
-                                List<Map<String, String>> relations = new ArrayList<>();
+
                                 path.nodes().forEach(node -> {
-                                    nodes.add(new HashMap<String, String>() {{
-                                        put("id", node.id() + "");
-                                        put("name", node.get("careerLevel").asString());
-                                    }});
+                                    if (nodes.stream().noneMatch(rel -> StringUtils.equalsIgnoreCase(rel.get("id"), node.id() + "")))
+                                        nodes.add(new HashMap<String, String>() {{
+                                            put("id", node.id() + "");
+                                            put("name", node.get("careerLevel").asString());
+                                        }});
                                 });
                                 path.relationships().forEach(relation -> {
-                                    relations.add(new HashMap<String, String>() {{
-                                        put("startId", relation.startNodeId() + "");
-                                        put("endId", relation.endNodeId() + "");
-                                        put("noOfPeople", relation.get("people") + "");
-                                    }});
+                                    if (relations.stream().noneMatch(rel -> StringUtils.equalsIgnoreCase(rel.get("relId"), relation.id() + "")))
+                                        relations.add(new HashMap<String, String>() {{
+                                            put("relId", relation.id() + "");
+                                            put("startId", relation.startNodeId() + "");
+                                            put("endId", relation.endNodeId() + "");
+                                            put("noOfPeople", relation.get("people") + "");
+                                        }});
                                 });
-                                paths.add(new HashMap<String, List<Map<String, String>>>() {{
-                                    put("nodes", nodes);
-                                    put("relations", relations);
-                                }});
                             });
+                        paths.put("nodes", nodes);
+                        paths.put("relations", relations);
                         session.closeAsync();
                     });
             return FutureConverters.toScala(cs);
@@ -354,21 +356,45 @@ public class NodeAsyncOperations {
     }
 
     private static List<Map<String, Object>> getRelationData(Map<String, Int> relData) {
-       return relData.keySet().stream().map(key -> new HashMap<String, Object>() {{
+        return relData.keySet().stream().map(key -> new HashMap<String, Object>() {{
             put("startNodeId", key.split("->")[0]);
             put("endNodeId", key.split("->")[1]);
-            put("relMetadata", new HashMap<String, Object>() {{ put("people", relData.get(key));}});
+            put("relMetadata", new HashMap<String, Object>() {{
+                put("people", relData.get(key));
+            }});
         }}).collect(Collectors.toList());
     }
 
-    private static String getTemplateStatement(String startNodeName, String endNodeName) {
+//    private static String getTemplateStatement(String startNodeName, String endNodeName) {
+//        if (StringUtils.isNotBlank(startNodeName) && StringUtils.isNotBlank(endNodeName))
+//            return "MATCH (n:education {careerLevel:\"" + startNodeName + "\"}), (m:education {careerLevel:\"" + endNodeName + "\"}) MATCH path = allShortestPaths( (n)-[*]-(m) ) RETURN path";
+//        else if(StringUtils.isNotBlank(startNodeName) && StringUtils.isBlank(endNodeName) )
+//            return "MATCH path = (n:education {careerLevel: \""+ startNodeName +"\"})-[r *]->(m:education) return path;";
+//        else if(StringUtils.isNotBlank(endNodeName) && StringUtils.isBlank(startNodeName))
+//            return "MATCH path = (n:education)-[r *]->(m:education {careerLevel: \""+ endNodeName +"\"}) return path;";
+//        else return "MATCH path = (n:education)-[r *]->(m:education) return paths;";
+//    }
+
+    private static String getTemplateStatement(String startNodeName, String endNodeName, String containsNodeName) {
         if (StringUtils.isNotBlank(startNodeName) && StringUtils.isNotBlank(endNodeName))
-            return "MATCH (n:education {careerLevel:\"" + startNodeName + "\"}), (m:education {careerLevel:\"" + endNodeName + "\"}) MATCH path = allShortestPaths( (n)-[*]-(m) ) RETURN path";
-        else if(StringUtils.isNotBlank(startNodeName) && StringUtils.isBlank(endNodeName) )
-            return "MATCH path = (n:education {careerLevel: \""+ startNodeName +"\"})-[r *]->(m:education) return path;";
-        else if(StringUtils.isNotBlank(endNodeName) && StringUtils.isBlank(startNodeName))
-            return "MATCH path = (n:education)-[r *]->(m:education {careerLevel: \""+ endNodeName +"\"}) return path;";
-        else return "MATCH path = (n:education)-[r *]->(m:education) return paths;";
+            if (StringUtils.isNotBlank(containsNodeName))
+                return "MATCH path = (n:education {careerLevel: \"" + startNodeName + "\" })-[r *]->(p:education {careerLevel:\"" + containsNodeName + "\"})-[*]->(m:education {careerLevel: \"" + endNodeName + "\"}) return path ;";
+            else
+                return "MATCH (n:education {careerLevel:\"" + startNodeName + "\"}), (m:education {careerLevel:\"" + endNodeName + "\"}) MATCH path = allShortestPaths( (n)-[*]-(m) ) RETURN path";
+        else if (StringUtils.isNotBlank(startNodeName) && StringUtils.isBlank(endNodeName))
+            if (StringUtils.isNotBlank(containsNodeName))
+                return "MATCH path = (n:education {careerLevel: \"" + startNodeName + "\" })-[r *]->(p:education {careerLevel:\"" + containsNodeName + "\"})-[*]->(m:education) return path;";
+            else
+                return "MATCH path = (n:education {careerLevel: \"" + startNodeName + "\"})-[r *]->(m:education) return path;";
+        else if (StringUtils.isNotBlank(endNodeName) && StringUtils.isBlank(startNodeName))
+            if (StringUtils.isNotBlank(containsNodeName))
+                return "match path = (n:education)-[r *]->(p:education {careerLevel:\"" + containsNodeName + "\"})-[*]->(m:education {careerLevel: \"" + endNodeName + "\"}) return path ;";
+            else
+                return "MATCH path = (n:education)-[r *]->(m:education {careerLevel: \"" + endNodeName + "\"}) return path;";
+        else if (StringUtils.isNotBlank(containsNodeName))
+            return "match path = (n:education)-[r *]->(p:education {careerLevel:\"" + containsNodeName + "\"})-[*]->(m:education) return path ;";
+        else
+            return "MATCH path = (n:education)-[r *]->(m:education) return paths;";
     }
 
     private static Node setPrimitiveData(Node node) {
@@ -377,11 +403,11 @@ public class NodeAsyncOperations {
                 .map(entry -> {
                     Object value = entry.getValue();
                     try {
-                        if(value instanceof Map) {
+                        if (value instanceof Map) {
                             value = JsonUtils.serialize(value);
                         } else if (value instanceof List) {
                             List listValue = (List) value;
-                            if(CollectionUtils.isNotEmpty(listValue) && listValue.get(0) instanceof Map) {
+                            if (CollectionUtils.isNotEmpty(listValue) && listValue.get(0) instanceof Map) {
                                 value = JsonUtils.serialize(value);
                             }
                         }
@@ -392,7 +418,7 @@ public class NodeAsyncOperations {
 
                     return entry;
                 })
-                .collect(HashMap::new, (m,v)->m.put(v.getKey(), v.getValue()), HashMap::putAll);
+                .collect(HashMap::new, (m, v) -> m.put(v.getKey(), v.getValue()), HashMap::putAll);
         return node;
     }
 

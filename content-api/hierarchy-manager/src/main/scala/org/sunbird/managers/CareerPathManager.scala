@@ -59,9 +59,10 @@ object CareerPathManager {
     def getCareerPath(request: Request)(implicit ec: ExecutionContext): Future[Response] = {
         val startNodeName = request.get("startNodeName").asInstanceOf[String]
         val endNodeName = request.get("endNodeName").asInstanceOf[String]
-        val relations: util.List[util.Map[String, util.List[util.Map[String, String]]]] = new util.ArrayList[util.Map[String, util.List[util.Map[String, String]]]]()
+        val containsNodeName = request.get("containsNodeName").asInstanceOf[String]
+        val relations: util.Map[String, util.List[util.Map[String, String]]] = new util.HashMap[String, util.List[util.Map[String, String]]]()
         val response = ResponseHandler.OK()
-        NodeAsyncOperations.getShortestPath("domain", startNodeName, endNodeName, relations).map(res => {
+        NodeAsyncOperations.getShortestPath("domain", startNodeName, endNodeName, containsNodeName, relations).map(res => {
             response.put("careerPaths", relations)
             response
         })

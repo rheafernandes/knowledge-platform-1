@@ -23,7 +23,7 @@ DELETE  /license/v3/retire/:identifier          controllers.v3.LicenseController
 
 #DEV CON ROUTES
 POST      /career/v3/upload/:identifier         controllers.v3.ContentController.generateCareerPath(identifier:String)
-GET       /career/v3/get/:identifier            controllers.v3.ContentController.getCareerPaths(identifier:String, start:Option[String], end:Option[String])
+GET       /career/v3/get/:identifier            controllers.v3.ContentController.getCareerPaths(identifier:String, start:Option[String], end:Option[String], contains:Option[String])
 
 
 
