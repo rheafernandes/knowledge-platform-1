@@ -6,7 +6,10 @@
         "copy" : [
             "status"
         ],
-        "update": []
+        "update": [
+            "status",
+            "identifier"
+        ]
     },
     "objectType": "Content",
     "external": {
