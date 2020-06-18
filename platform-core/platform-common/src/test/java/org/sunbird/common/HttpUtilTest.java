@@ -148,6 +148,7 @@ public class HttpUtilTest {
 		method.invoke(httpUtil, httpResp);
 	}
 
+
 	private void validateResponse(Response resp) {
 		assertTrue(null != resp);
 		assertTrue(StringUtils.equalsIgnoreCase("OK", resp.getResponseCode().toString()));
